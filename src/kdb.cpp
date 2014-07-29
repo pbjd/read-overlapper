@@ -209,30 +209,12 @@ uint8_t baseToShort(const char base) {
 }
 
 void addEntry(vector< KmerEntries* > *kdb, const string &seq, const iid_t iid) {
-    std::unordered_map<uint32_t,bool> seen;
-    for (uint16_t offs = 0; offs < seq.length() - 14; offs++) {
-        uint32_t slot = bitv(seq.substr(offs, 14));
-
-        if (seen.count(slot))
-            continue;
-
-        if ((*kdb)[slot] == NULL)
-            (*kdb)[slot] = new KmerEntries();
-
-        KmerRecord value;
-        value.iid = iid;
-        value.offs = offs;
-        (*kdb)[slot]->push_back(value);
-        seen[slot] = 1;
-    }
-}
-
-void addEntry2(vector< KmerEntries* > *kdb, const string &seq, const iid_t iid) {
     uint32_t slot = bitv(seq.substr(0, 14));
     string::const_iterator curr(seq.begin() + 14);
     string::const_iterator end(seq.end() - 14);
     uint16_t offs = 1;
     uint32_t prevSlot = slot;
+    size_t seqlen = seq.size() - 14;
     for (; curr != end; ++curr) {
         slot = (slot & 0x3FFFFFF) << 2;
         slot |= baseToShort(*curr);
@@ -252,89 +234,66 @@ void addEntry2(vector< KmerEntries* > *kdb, const string &seq, const iid_t iid) 
     }
 }
 
-void findPairs(vector< KmerEntries* > *kdb, const string &seq, std::unordered_map<iid_t,ScorePair> &unsortedPairs) {
-    std::unordered_map<uint32_t,bool> seen;
-    uint16_t qlen = seq.length();
-    for (uint16_t qoffs = 0; qoffs < qlen - 14; qoffs += 7) {
-        string fseq = seq.substr(qoffs, 14);
-        uint32_t slot = bitv(fseq);
-        KmerEntries* targets = (*kdb)[slot];
-        if (targets != NULL && !seen.count(slot)) {
-            KmerEntries::iterator it;
-            for (it = (*targets).begin(); it != (*targets).end(); ++it) {
-                KmerRecord target = *it;
-                unsortedPairs[target.iid].addFwd(KmerPair(qoffs, target.offs));
-            }
-            seen[slot] = 1;
-        }
+void addEntry2(vector< KmerEntries* > *kdb, const string &seq, const iid_t iid) {
+    uint32_t slot = bitv(seq.substr(0, 14));
+    uint16_t offs = 2;
+    uint32_t prevSlot = slot;
+    size_t seqlen = seq.size() - 14;
+    for (int i = 0; i < seqlen; i += 2) {
+        slot = (slot & 0xFFFFFF) << 4;
+        slot |= baseToShort(seq[i]) << 2;
+        slot |= baseToShort(seq[i+1]);
 
-        string rseq = revComp(fseq);
-        slot = bitv(rseq);
-        targets = (*kdb)[slot];
-        if (targets != NULL && !seen.count(slot)) {
-            KmerEntries::iterator it;
-            for (it = (*targets).begin(); it != (*targets).end(); ++it) {
-                KmerRecord target = *it;
-                unsortedPairs[target.iid].addRev(KmerPair(qlen-(qoffs+14), target.offs));
-            }
-            seen[slot] = 1;
-        }
+        // handles simple tandem repeats, e.g., AAAAAAAAAAAAAAAAAAAAAAAAAAAA
+        if (slot == prevSlot) 
+            continue;
+
+        if ((*kdb)[slot] == NULL)
+            (*kdb)[slot] = new KmerEntries();
+
+        KmerRecord value;
+        value.iid = iid;
+        value.offs = offs;
+        (*kdb)[slot]->push_back(value);
+        prevSlot = slot;
+        offs += 2;
     }
 }
 
-void findPairs2(vector< KmerEntries* > *kdb, const string &seq, std::unordered_map<iid_t,ScorePair> &unsortedPairs) {
-    std::unordered_map<uint32_t,bool> seen;
-    string rseq = revComp(seq); 
-    uint32_t fslot = bitv(seq.substr(0, 14));
-    uint32_t rslot = bitv(rseq.substr(0, 14));
-    string::const_iterator fcurr(seq.begin() + 7);
-    string::const_iterator rcurr(rseq.begin() + 7);
-    uint16_t qoffs = 7;
-    uint16_t qlen = seq.length();
-    for (; qoffs < qlen - 14; fcurr += 7, rcurr += 7) {
-        fslot = (fslot & 0x3FFF) << 14;
-        fslot |= baseToShort(*(fcurr+7)) << 12;
-        fslot |= baseToShort(*(fcurr+8)) << 10;
-        fslot |= baseToShort(*(fcurr+9)) << 8;
-        fslot |= baseToShort(*(fcurr+10))<< 6;
-        fslot |= baseToShort(*(fcurr+11))<< 4;
-        fslot |= baseToShort(*(fcurr+12))<< 2;
-        fslot |= baseToShort(*(fcurr+13));
-        KmerEntries* targets = (*kdb)[fslot];
-        if (targets != NULL && !seen.count(fslot)) {
-            KmerEntries::iterator curr((*targets).begin());
-            KmerEntries::iterator end((*targets).end());
-            for (; curr != end; ++curr) {
-                KmerRecord target = *curr;
-                unsortedPairs[target.iid].addFwd(KmerPair(qoffs, target.offs));
-            }
-            seen[fslot] = 1;
-        }
+void addEntry3(vector< KmerEntries* > *kdb, const string &seq, const iid_t iid) {
+    uint32_t slot = bitv(seq.substr(0, 14));
+    uint16_t offs = 2;
+    uint32_t prevSlot = slot;
+    size_t seqlen = seq.size() - 14;
+    for (int i = 0; i < seqlen; i += 3) {
+        slot = (slot & 0x3FFFFF) << 6;
+        slot |= baseToShort(seq[i]) << 4;
+        slot |= baseToShort(seq[i+1]) << 2;
+        slot |= baseToShort(seq[i+2]);
 
-        rslot = (rslot & 0x3FFF) << 14;
-        rslot |= baseToShort(*(rcurr+7)) << 12;
-        rslot |= baseToShort(*(rcurr+8)) << 10;
-        rslot |= baseToShort(*(rcurr+9)) << 8;
-        rslot |= baseToShort(*(rcurr+10))<< 6;
-        rslot |= baseToShort(*(rcurr+11))<< 4;
-        rslot |= baseToShort(*(rcurr+12))<< 2;
-        rslot |= baseToShort(*(rcurr+13));
-        targets = (*kdb)[rslot];
-        if (targets != NULL && !seen.count(rslot)) {
-            KmerEntries::iterator curr((*targets).begin());
-            KmerEntries::iterator end((*targets).end());
-            for (; curr != end; ++curr) {
-                KmerRecord target = *curr;
-                unsortedPairs[target.iid].addRev(KmerPair(qlen-(qoffs+14), target.offs));
-            }
-            seen[rslot] = 1;
-        }
+        // handles simple tandem repeats, e.g., AAAAAAAAAAAAAAAAAAAAAAAAAAAA
+        if (slot == prevSlot) 
+            continue;
 
-        qoffs += 7;
+        if ((*kdb)[slot] == NULL)
+            (*kdb)[slot] = new KmerEntries();
+
+        KmerRecord value;
+        value.iid = iid;
+        value.offs = offs;
+        (*kdb)[slot]->push_back(value);
+        prevSlot = slot;
+        offs += 2;
     }
 }
 
-void findPairs3(vector< KmerEntries* > *kdb, const string &seq, std::unordered_map<iid_t,ScorePair> &unsortedPairs) {
+void cleanEntries(vector< KmerEntries* > *kdb) {
+    for (int i = 0; i < kdb->capacity(); i++)
+        if ((*kdb)[i] != NULL && (*kdb)[i]->size() > 50)
+            (*kdb)[i] = NULL;
+}
+
+void findPairs(vector< KmerEntries* > *kdb, const string qname, const string &seq, std::unordered_map<iid_t,ScorePair> &unsortedPairs, const vector<TargetRecord> &tids) {
     std::unordered_map<uint32_t,bool> seen;
     uint32_t slot = bitv(seq.substr(0, 14));
     string::const_iterator fcurr(seq.begin() + 7);
@@ -355,6 +314,7 @@ void findPairs3(vector< KmerEntries* > *kdb, const string &seq, std::unordered_m
             KmerEntries::iterator end((*targets).end());
             for (; curr != end; ++curr) {
                 KmerRecord target = *curr;
+                if (qname == tids.at(target.iid).name) continue;
                 unsortedPairs[target.iid].addFwd(KmerPair(qoffs, target.offs));
             }
             seen[slot] = 1;
@@ -373,6 +333,7 @@ void findPairs3(vector< KmerEntries* > *kdb, const string &seq, std::unordered_m
             KmerEntries::iterator end((*targets).end());
             for (; curr != end; ++curr) {
                 KmerRecord target = *curr;
+                if (qname == tids.at(target.iid).name) continue;
                 unsortedPairs[target.iid].addRev(KmerPair(qlen-(qoffs+14), target.offs));
             }
             seen[rslot] = 1;
@@ -385,9 +346,7 @@ void findPairs3(vector< KmerEntries* > *kdb, const string &seq, std::unordered_m
 void printPairs(vector< KmerEntries* > *kdb, const string qname, const string &seq, const vector<TargetRecord> &targets) {
     std::unordered_map<iid_t, ScorePair> pairs;
 
-    //findPairs(kdb, seq, pairs);
-    //findPairs2(kdb, seq, pairs);
-    findPairs3(kdb, seq, pairs);
+    findPairs(kdb, qname, seq, pairs, targets);
 
     std::multimap<int, TargetRecord> ranked;
     uint16_t qlen = seq.length();
@@ -411,10 +370,10 @@ void printPairs(vector< KmerEntries* > *kdb, const string qname, const string &s
             continue;
 
         TargetRecord tRec = rankCur->second;
-        string tname = tRec.name.substr(tRec.name.find('/')+1);
+        string tname = tRec.name;
         std::cout << qname << ":" << tname << " " << rankCur->first << std::endl;
 
-        if (++count == 15)
+        if (++count == 30)
             break;
     }
 }
@@ -482,14 +441,15 @@ void matchKmers(string qfa, string tfa) {
     while (ifs >> line) {
         if (line[0] == '>') {
             TargetRecord tRec;
-            tRec.name = line.substr(1);
+            tRec.name = line.substr(line.find('/')+1);
             tRec.length = lenFromName(tRec.name.substr(tRec.name.rfind("/")+1));
-            tRec.vecOffs = targetSeqs.size();
+            //tRec.vecOffs = targetSeqs.size();
             targets.push_back(tRec);
             if (seq.length() > 0) {
                 //storeSeq(targetSeqs, seq);
                 //addEntry(kdb, seq, iid);
                 addEntry2(kdb, seq, iid);
+                //addEntry3(kdb, seq, iid);
                 seq.clear();
                 iid++;
             }
@@ -502,8 +462,11 @@ void matchKmers(string qfa, string tfa) {
         //storeSeq(targetSeqs, seq);
         //addEntry(kdb, seq, iid);
         addEntry2(kdb, seq, iid);
+        //addEntry3(kdb, seq, iid);
         seq.clear();
     }
+    
+    cleanEntries(kdb);
 
     ifs.close();
 
